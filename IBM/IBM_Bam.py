@@ -17,6 +17,8 @@ params = GenerateParams(decoding_method="greedy")
 
 # As LangChain Model
 langchain_model = LangChainInterface(model='thebloke/mixtral-8x7b-instruct-v0-1-gptq', params=params, credentials=creds)
-result = langchain_model('what is your name, who created you?')
 
-print(result)
+def U_bam(prompt):
+    result = langchain_model(prompt)
+    return result
+

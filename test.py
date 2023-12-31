@@ -11,7 +11,7 @@ from pathlib import Path
 from langchain.embeddings import HuggingFaceInstructEmbeddings,GPT4AllEmbeddings,HuggingFaceEmbeddings,OllamaEmbeddings,SpacyEmbeddings,TensorflowHubEmbeddings
 import tempfile
 from langchain.vectorstores import Chroma,FAISS,LanceDB
-from IBM import IBM_Bam,watsonx
+from IBM import IBM_Bam
 
 def process_file(file_stream, file_name, progress_bar):
     file_extension = os.path.splitext(file_name)[1].lower()
@@ -224,7 +224,14 @@ def main():
             else:
                 st.error("Please select an embedding model first.")
            
-           
+    # Multi-line text area
+    prompt = st.text_area("Enter your prompt here (multi-line):")   
+
+    output = IBM_Bam.U_bam(prompt)
+    print(output)
+
+    st.write(output)
+
 
 
 if __name__ == "__main__":
