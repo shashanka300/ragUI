@@ -75,19 +75,9 @@ def process_file(file_stream, file_name, progress_bar):
             text_splitter = CharacterTextSplitter(separator="\n\n", chunk_size=1000, chunk_overlap=200)
             chunks = text_splitter.create_documents([text_content])
             text_chunks.extend(chunks)
-            # st.write(chunks)
+            print(text_chunks)
             return text_chunks
 
-        # elif file_extension in ["py", "java", "js", "cpp"]:  # Add other code file extensions as needed
-        #     # Handle code files using CodeTextSplitter
-        #     from langchain.text_splitter import RecursiveCharacterTextSplitter, Language
-        #     with open(tmp_file_path, 'r') as file:
-        #         code_content = file.read()
-        #     language_map = {"py": Language.PYTHON, "java": Language.JAVA, "js": Language.JS, "cpp": Language.CPP}
-        #     language = language_map.get(file_extension, Language.PYTHON)  # Default to Python if not mapped
-        #     code_splitter = RecursiveCharacterTextSplitter.from_language(language=language, chunk_size=50, chunk_overlap=0)
-        #     code_splits = code_splitter.create_documents([code_content])
-        #     st.write(code_splits)
         else:
             return "Unsupported file format!"
 
@@ -99,21 +89,24 @@ def process_file(file_stream, file_name, progress_bar):
         os.remove(tmp_file_path)
 
 
-# def process_embedding(embedding_type, text_chunks):
+def process_embedding(embedding_type, text_chunks,multi_line_text,vstore):
 
-#     try:
-#         embeddings = assign_embedding(embedding_type)
-#         if embeddings and text_chunks:
-#             # Extract text content from Document objects if necessary
-#             texts = [chunk.text if hasattr(chunk, 'text') else str(chunk) for chunk in text_chunks]
-#             query_result = embeddings.embed_documents(texts)
-#             st.write(query_result)
-#         else:
-#             st.write("No text data available or failed to load embeddings.")
-#     except Exception as e:
-#         st.error(f"Error with {embedding_type} embeddings: {e}")
+    try:
+        embeddings = assign_embedding(embedding_type)
+        if embeddings and text_chunks:
+            db = vstore.from_documents(text_chunks, embeddings)
+            retriver = db.as_retriever()
+            docs = retriver.get_relevant_documents(multi_line_text)
+
+            st.write(docs[0].page_content)
+        else:
+            st.write("No text data available or failed to load embeddings.")
+    except Exception as e:
+        st.error(f"Error with {embedding_type} embeddings: {e}")
 
 
+
+        
 def assign_embedding(embedding_type):
     if embedding_type == 'huggingface':
         return HuggingFaceEmbeddings()
@@ -133,11 +126,11 @@ def assign_embedding(embedding_type):
 
 
 def main():
-    # Initialize session state
-    if 'text' not in st.session_state:
-        st.session_state['text'] = None
-    if 'embeddings' not in st.session_state:
-        st.session_state['embeddings'] = None
+
+    # Initialize session state for embedding type
+    if 'embeddings_type' not in st.session_state:
+        st.session_state['embeddings_type'] = None
+
 
     # Configure page layout
     st.set_page_config(layout="wide")
@@ -178,49 +171,59 @@ def main():
              text = process_file(uploaded_file, uploaded_file.name, progress_bar)
              st.write(text)
     
+
     st.header('Choose an Embedding Model')
     col1, col2, col3, col4, col5, col6 = st.columns(6)
 
     with col1:
         if st.button('HuggingFace Embeddings'):
-            process_embedding('huggingface', text)
+           st.session_state['embeddings_type'] = 'huggingface'
 
     with col2:
         if st.button('GPT4All Embeddings'):
-           process_embedding('gpt4all', text)
+           st.session_state['embeddings_type'] = 'gpt4all'
 
     with col3:
         if st.button('Ollama Embeddings'):
-            process_embedding('ollama', text)
+            st.session_state['embeddings_type'] = 'ollama'
 
     with col4:
         if st.button('Spacy Embeddings'):
-           process_embedding('spacy', text)
+           st.session_state['embeddings_type'] = 'spacy'
 
     with col5:
         if st.button('Tensorflow Hub Embeddings'):
-           process_embedding('tensorflow_hub', text)
+           st.session_state['embeddings_type'] = assign_embedding('tensorflow_hub')
            
     with col6:
         if st.button('HuggingFaceInstruct Embeddings'):
-           process_embedding('HuggingFaceInstruct', text)
+           st.session_state['embeddings_type'] = 'HuggingFaceInstruct'
 
+    # st.text(embeddings)
+
+    # Multi-line text area
+    multi_line_text = st.text_area("Enter your text here (multi-line):")
 
     st.header('Choose a DB')
-    col1, col2, col3 = st.columns(3)
+    col1, col2 = st.columns(2)
 
     with col1:
         if st.button('FAISS'):
-            pass
+            if 'embeddings_type' in st.session_state:
+                process_embedding(st.session_state['embeddings_type'], text, multi_line_text, FAISS)
+            else:
+                st.error("Please select an embedding model first.")
+           
            
     with col2:
         if st.button('Chroma'):
-           pass
-
-    with col3:
-        if st.button('LanceDB'):
-            pass
-
+            if 'embeddings_type' in st.session_state:
+                # embeddings = assign_embedding(st.session_state['embeddings_type'])
+                process_embedding(st.session_state['embeddings_type'], text, multi_line_text, Chroma)
+            else:
+                st.error("Please select an embedding model first.")
+           
+           
 
 
 if __name__ == "__main__":
