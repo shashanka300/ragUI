@@ -3,6 +3,7 @@ import pandas as pd
 import zipfile
 import io
 import os
+import ast
 from langchain.document_loaders.csv_loader import CSVLoader
 from langchain.document_loaders import BSHTMLLoader, JSONLoader, PyPDFLoader, TextLoader
 from langchain.text_splitter import HTMLHeaderTextSplitter, RecursiveCharacterTextSplitter, MarkdownHeaderTextSplitter,CharacterTextSplitter
@@ -12,6 +13,8 @@ from langchain.embeddings import HuggingFaceInstructEmbeddings,GPT4AllEmbeddings
 import tempfile
 from langchain.vectorstores import Chroma,FAISS,LanceDB
 from IBM import IBM_Bam
+from retrival import rag_fussion_compression
+from evaluation import metrics
 
 def process_file(file_stream, file_name, progress_bar):
     file_extension = os.path.splitext(file_name)[1].lower()
@@ -76,7 +79,7 @@ def process_file(file_stream, file_name, progress_bar):
             text_splitter = CharacterTextSplitter(separator="\n\n", chunk_size=1000, chunk_overlap=200)
             chunks = text_splitter.create_documents([text_content])
             text_chunks.extend(chunks)
-            print(text_chunks)
+            # print(text_chunks)
             return text_chunks
 
         else:
@@ -96,10 +99,10 @@ def process_embedding(embedding_type, text_chunks,multi_line_text,vstore):
         embeddings = assign_embedding(embedding_type)
         if embeddings and text_chunks:
             db = vstore.from_documents(text_chunks, embeddings)
-            retriver = db.as_retriever()
-            docs = retriver.get_relevant_documents(multi_line_text)
-
+            retriever = db.as_retriever()
+            docs = retriever.get_relevant_documents(multi_line_text)
             st.write(docs[0].page_content)
+            return retriever
         else:
             st.write("No text data available or failed to load embeddings.")
     except Exception as e:
@@ -131,8 +134,14 @@ def main():
     # Initialize session state for embedding type
     if 'embeddings_type' not in st.session_state:
         st.session_state['embeddings_type'] = None
+    
+    if 'retriever' not in st.session_state:
+        st.session_state['retriever'] = None
+    
+    if 'result' not in st.session_state:
+        st.session_state['result'] = None
 
-
+    # output = 'please enter a prompt'
     # Configure page layout
     st.set_page_config(layout="wide")
 
@@ -194,7 +203,7 @@ def main():
 
     with col5:
         if st.button('Tensorflow Hub Embeddings'):
-           st.session_state['embeddings_type'] = assign_embedding('tensorflow_hub')
+           st.session_state['embeddings_type'] = 'tensorflow_hub'
            
     with col6:
         if st.button('HuggingFaceInstruct Embeddings'):
@@ -211,28 +220,130 @@ def main():
     with col1:
         if st.button('FAISS'):
             if 'embeddings_type' in st.session_state:
-                process_embedding(st.session_state['embeddings_type'], text, multi_line_text, FAISS)
+                retriever = process_embedding(st.session_state['embeddings_type'], text, multi_line_text, FAISS)
+                st.session_state['retriever'] = retriever
+
             else:
                 st.error("Please select an embedding model first.")
-           
-           
+                      
     with col2:
         if st.button('Chroma'):
             if 'embeddings_type' in st.session_state:
-                # embeddings = assign_embedding(st.session_state['embeddings_type'])
-                process_embedding(st.session_state['embeddings_type'], text, multi_line_text, Chroma)
+                retriever = process_embedding(st.session_state['embeddings_type'], text, multi_line_text, Chroma)
+                st.session_state['retriever'] = retriever
             else:
                 st.error("Please select an embedding model first.")
            
-    # Multi-line text area
-    prompt = st.text_area("Enter your prompt here (multi-line):")   
+    # Multi-line text area 
+    prompt = st.text_area("Enter your prompt for Rag (multi-line):")
+    
+    st.header("Single Digit Input")
 
-    output = IBM_Bam.U_bam(prompt)
-    print(output)
+    # Add a text input widget for the user to enter a single digit
+    count = st.text_input("Enter a single digit number between 2-9:")
 
-    st.write(output)
+    # Validate the input to ensure it's a single digit integer
+    if count.isdigit() and len(count) == 1:
+        st.write("You entered:", int(count))  # Convert to integer for further use
+    else:
+        st.error("Please enter a single digit number.")
+    
+    st.header('Choose a Retrival type')
+    col1, col2, col3 = st.columns(3)
 
+    with col1:
+        if st.button('Rag_fussion'):
+            f_prompt = rag_fussion_compression.query_prompt(prompt, count='3')
+            result = IBM_Bam.U_bam(f_prompt)
+            output = result.replace('"rephrased_questions":',"")
+            multi_query = ast.literal_eval(output)
+            multi_query.insert(0,prompt)
+            st.write(multi_query)
 
+            mulri_results=rag_fussion_compression.fusion_formator(st.session_state['retriever'],multi_query)
+
+            ranked_result = rag_fussion_compression.reciprocal_rank_fusion(mulri_results)
+
+            txt = []
+            for data in ranked_result[:3]:
+                txt.append(data[0]['text'])
+
+            result_P = rag_fussion_compression.result_prompt(prompt, txt)
+            result =  IBM_Bam.U_bam(result_P)
+            st.session_state['result'] = result
+            st.write(result)
+
+    with col2:
+        if st.button('Rag_fussion_weighted'):
+            f_prompt = rag_fussion_compression.query_prompt(prompt, count='3')
+            result = IBM_Bam.U_bam(f_prompt)
+            output = result.replace('"rephrased_questions":',"")
+            multi_query = ast.literal_eval(output)
+            multi_query.insert(0,prompt)
+            st.write(multi_query)
+
+            mulri_results=rag_fussion_compression.fusion_formator(st.session_state['retriever'],multi_query)
+
+            ranked_result = rag_fussion_compression.reciprocal_rank_fusion_weighted(mulri_results)
+
+            txt = []
+            for data in ranked_result[:3]:
+                txt.append(data[0]['text'])
+
+            result_P = rag_fussion_compression.result_prompt(prompt, txt)
+            result =  IBM_Bam.U_bam(result_P)
+            st.session_state['result'] = result
+            st.write(result)
+
+    with col3:
+        if st.button('Rag_fussion_Contextual_compression'):
+            f_prompt = rag_fussion_compression.query_prompt(prompt, count='3')
+            result = IBM_Bam.U_bam(f_prompt)
+            output = result.replace('"rephrased_questions":',"")
+            multi_query = ast.literal_eval(output)
+            multi_query.insert(0,prompt)
+            st.write(multi_query)
+
+            mulri_results=rag_fussion_compression.fusion_formator_compressed(IBM_Bam.langchain_model,st.session_state['retriever'],multi_query)
+
+            ranked_result = rag_fussion_compression.reciprocal_rank_fusion_weighted(mulri_results)
+
+            txt = []
+            for data in ranked_result[:3]:
+                txt.append(data[0]['text'])
+
+            result_P = rag_fussion_compression.result_prompt(prompt, txt)
+            result =  IBM_Bam.U_bam(result_P)
+            st.session_state['result'] = result
+            st.write(result)
+    
+
+       # Multi-line text area 
+    references = st.text_area(f"the ground truth answer for you question - {prompt}")
+
+    st.header('Choose an evaluation Metric')
+    col1, col2, col3, col4 = st.columns(4)
+
+    with col1:
+        if st.button('Blue'):
+           blue = metrics.bleu_score(references,st.session_state['result'])
+           st.write(blue)
+
+    with col2:
+        if st.button('Rouge 1 2 L'):
+           Rouge_1,Rouge_2,Rouge_L = metrics.rouge_score(references,st.session_state['result'])
+           st.write(Rouge_1,Rouge_2,Rouge_L)
+
+    with col3:
+        if st.button('Precission Recall'):
+            precision, recall = metrics.precision_recall(references,st.session_state['result'])
+            st.write(precision, recall)
+    
+    with col4:
+        st.write('Dosent need ground truth')
+        if st.button('Flesch-Kincaid reading'):
+            blue = metrics.readability(st.session_state['result'])
+            st.write(blue)
 
 if __name__ == "__main__":
     main()

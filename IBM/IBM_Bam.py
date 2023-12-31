@@ -12,7 +12,11 @@ my_api_endpoint = os.getenv("GENAI_API", None)
 # creds object
 creds = Credentials(api_key=my_api_key, api_endpoint=my_api_endpoint)
 
-params = GenerateParams(decoding_method="greedy")
+params = GenerateParams(decoding_method="greedy",
+            max_new_tokens=1536,
+            min_new_tokens=0,
+            repetition_penalty=1,
+            stop_sequences = ["]"])
 
 
 # As LangChain Model
